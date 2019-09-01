@@ -5,19 +5,17 @@ defmodule ExAws.DynamoIntegrationTest do
   ## These tests run against DynamoDb Local
   #
   # http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Tools.DynamoDBLocal.html
-  # In this way they can safely delete data and tables without risking actual data on
-  # Dynamo
+  # In this way they can safely delete data and tables without risking actual data on Dynamo
   #
 
   @moduletag :dynamo
 
   setup_all do
-    Dynamo.delete_table("Users") |> ExAws.request()
-    Dynamo.delete_table(Test.User) |> ExAws.request()
-    Dynamo.delete_table("SeveralUsers") |> ExAws.request()
-    Dynamo.delete_table(Foo) |> ExAws.request()
-    Dynamo.delete_table("books") |> ExAws.request()
-    :ok
+    TestHelper.delete_test_tables()
+
+    on_exit(fn ->
+      TestHelper.delete_test_tables()
+    end)
   end
 
   test "#list_tables" do
