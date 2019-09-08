@@ -18,3 +18,6 @@ erl_crash.dump
 
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
+
+# During testing, a local copy of DDB may be installed and unzipped - ignore it, of course.
+test/support/dynamodb_local_latest*

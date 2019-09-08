@@ -1,152 +1,153 @@
 defmodule ExAws.DynamoIntegrationTest do
-  alias ExAws.Dynamo
-  use ExUnit.Case, async: true
-
-  ## These tests run against DynamoDb Local
+  # These tests run against DynamoDb Local
   #
   # http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Tools.DynamoDBLocal.html
   # In this way they can safely delete data and tables without risking actual data on Dynamo
   #
 
-  @moduletag :dynamo
+  # At this point, we'd expect DynamoDB to be running, but do a quick check just in case.
+  case DDBLocal.try_connect() do
+    :ok ->
+      use ExUnit.Case, async: true
+      alias ExAws.Dynamo, warn: false # Suppress an unnecessary unused alias warning - https://github.com/elixir-lang/elixir/issues/7980
 
-  setup_all do
-    TestHelper.delete_test_tables()
+      setup_all do
+        on_exit(fn ->
+          DDBLocal.stop_ddb()
+        end)
+      end
 
-    on_exit(fn ->
-      TestHelper.delete_test_tables()
-    end)
-  end
+      test "#list_tables" do
+        assert {:ok, %{"TableNames" => _}} = Dynamo.list_tables() |> ExAws.request()
+      end
 
-  test "#list_tables" do
-    assert {:ok, %{"TableNames" => _}} = Dynamo.list_tables() |> ExAws.request()
-  end
+      test "#create and destroy table" do
+        assert {:ok, %{"TableDescription" => %{"TableName" => "Elixir.Foo"}}} =
+                 Dynamo.create_table(Foo, :shard_id, [shard_id: :string], 1, 1) |> ExAws.request()
+      end
 
-  test "#create and destroy table" do
-    assert {:ok, %{"TableDescription" => %{"TableName" => "Elixir.Foo"}}} =
-             Dynamo.create_table(Foo, :shard_id, [shard_id: :string], 1, 1) |> ExAws.request()
-  end
+      test "#create table with range" do
+        assert Dynamo.create_table(
+                 "UsersWithRange",
+                 [email: :hash, age: :range],
+                 [email: :string, age: :number],
+                 1,
+                 1
+               )
+               |> ExAws.request()
+      end
 
-  test "#create table with range" do
-    assert Dynamo.create_table(
-             "UsersWithRange",
-             [email: :hash, age: :range],
-             [email: :string, age: :number],
-             1,
-             1
-           )
-           |> ExAws.request()
-  end
+      test "put and get item with map values work" do
+        {:ok, _} = Dynamo.create_table(Test.User, :email, [email: :string], 1, 1) |> ExAws.request()
 
-  test "put and get item with map values work" do
-    {:ok, _} = Dynamo.create_table(Test.User, :email, [email: :string], 1, 1) |> ExAws.request()
+        user = %Test.User{
+          email: "foo@bar.com",
+          name: %{first: "bob", last: "bubba"},
+          age: 23,
+          admin: false
+        }
 
-    user = %Test.User{
-      email: "foo@bar.com",
-      name: %{first: "bob", last: "bubba"},
-      age: 23,
-      admin: false
-    }
+        assert {:ok, _} = Dynamo.put_item(Test.User, user) |> ExAws.request()
 
-    assert {:ok, _} = Dynamo.put_item(Test.User, user) |> ExAws.request()
+        item =
+          Test.User
+          |> Dynamo.get_item(%{email: user.email})
+          |> ExAws.request!()
+          |> Dynamo.decode_item(as: Test.User)
 
-    item =
-      Test.User
-      |> Dynamo.get_item(%{email: user.email})
-      |> ExAws.request!()
-      |> Dynamo.decode_item(as: Test.User)
+        assert user == item
+      end
 
-    assert user == item
-  end
+      test "put and get several items with map values work" do
+        {:ok, _} =
+          Dynamo.create_table("SeveralUsers", :email, [email: :string], 1, 1) |> ExAws.request()
 
-  test "put and get several items with map values work" do
-    {:ok, _} =
-      Dynamo.create_table("SeveralUsers", :email, [email: :string], 1, 1) |> ExAws.request()
+        user1 = %Test.User{
+          email: "foo@bar.com",
+          name: %{first: "bob", last: "bubba"},
+          age: 23,
+          admin: false
+        }
 
-    user1 = %Test.User{
-      email: "foo@bar.com",
-      name: %{first: "bob", last: "bubba"},
-      age: 23,
-      admin: false
-    }
+        user2 = %Test.User{
+          email: "bar@bar.com",
+          name: %{first: "jane", last: "bubba"},
+          age: 21,
+          admin: true
+        }
 
-    user2 = %Test.User{
-      email: "bar@bar.com",
-      name: %{first: "jane", last: "bubba"},
-      age: 21,
-      admin: true
-    }
+        assert {:ok, _} = Dynamo.put_item("SeveralUsers", user1) |> ExAws.request()
+        assert {:ok, _} = Dynamo.put_item("SeveralUsers", user2) |> ExAws.request()
 
-    assert {:ok, _} = Dynamo.put_item("SeveralUsers", user1) |> ExAws.request()
-    assert {:ok, _} = Dynamo.put_item("SeveralUsers", user2) |> ExAws.request()
+        items =
+          Dynamo.scan("SeveralUsers", limit: 2)
+          |> ExAws.request!()
+          |> Dynamo.decode_item(as: Test.User)
 
-    items =
-      Dynamo.scan("SeveralUsers", limit: 2)
-      |> ExAws.request!()
-      |> Dynamo.decode_item(as: Test.User)
+        assert Enum.at(items, 0) == user1
+        assert Enum.at(items, 1) == user2
+      end
 
-    assert Enum.at(items, 0) == user1
-    assert Enum.at(items, 1) == user2
-  end
+      test "stream scan" do
+        {:ok, _} = Dynamo.create_table("Users", :email, [email: :string], 1, 1) |> ExAws.request()
 
-  test "stream scan" do
-    {:ok, _} = Dynamo.create_table("Users", :email, [email: :string], 1, 1) |> ExAws.request()
+        user = %Test.User{
+          email: "foo@bar.com",
+          name: %{first: "bob", last: "bubba"},
+          age: 23,
+          admin: false
+        }
 
-    user = %Test.User{
-      email: "foo@bar.com",
-      name: %{first: "bob", last: "bubba"},
-      age: 23,
-      admin: false
-    }
+        assert {:ok, _} = Dynamo.put_item("Users", user) |> ExAws.request()
 
-    assert {:ok, _} = Dynamo.put_item("Users", user) |> ExAws.request()
+        user = %Test.User{
+          email: "bar@bar.com",
+          name: %{first: "bob", last: "bubba"},
+          age: 23,
+          admin: false
+        }
 
-    user = %Test.User{
-      email: "bar@bar.com",
-      name: %{first: "bob", last: "bubba"},
-      age: 23,
-      admin: false
-    }
+        assert {:ok, _} = Dynamo.put_item("Users", user) |> ExAws.request()
 
-    assert {:ok, _} = Dynamo.put_item("Users", user) |> ExAws.request()
+        user = %Test.User{
+          email: "baz@bar.com",
+          name: %{first: "bob", last: "bubba"},
+          age: 23,
+          admin: false
+        }
 
-    user = %Test.User{
-      email: "baz@bar.com",
-      name: %{first: "bob", last: "bubba"},
-      age: 23,
-      admin: false
-    }
+        assert {:ok, _} = Dynamo.put_item("Users", user) |> ExAws.request()
 
-    assert {:ok, _} = Dynamo.put_item("Users", user) |> ExAws.request()
+        assert Dynamo.scan("Users", limit: 1)
+               |> ExAws.stream!()
+               |> Enum.count() == 3
+      end
 
-    assert Dynamo.scan("Users", limit: 1)
-           |> ExAws.stream!()
-           |> Enum.count() == 3
-  end
+      test "batch_write_item works" do
+        {:ok, _} =
+          Dynamo.create_table(
+            "books",
+            [title: "hash", format: "range"],
+            [title: :string, format: :string],
+            1,
+            1
+          )
+          |> ExAws.request()
 
-  test "batch_write_item works" do
-    {:ok, _} =
-      Dynamo.create_table(
-        "books",
-        [title: "hash", format: "range"],
-        [title: :string, format: :string],
-        1,
-        1
-      )
-      |> ExAws.request()
+        requests = [
+          [put_request: [item: %{title: "Tale of Two Cities", format: "hardcover", price: 20.00}]],
+          [put_request: [item: %{title: "Tale of Two Cities", format: "softcover", price: 10.00}]]
+        ]
 
-    requests = [
-      [put_request: [item: %{title: "Tale of Two Cities", format: "hardcover", price: 20.00}]],
-      [put_request: [item: %{title: "Tale of Two Cities", format: "softcover", price: 10.00}]]
-    ]
+        assert {:ok, _} = Dynamo.batch_write_item(%{"books" => requests}) |> ExAws.request()
 
-    assert {:ok, _} = Dynamo.batch_write_item(%{"books" => requests}) |> ExAws.request()
+        delete_requests = [
+          [delete_request: [key: %{title: "Tale of Two Cities", format: "hardcover"}]],
+          [delete_request: [key: %{title: "Tale of Two Cities", format: "softcover"}]]
+        ]
 
-    delete_requests = [
-      [delete_request: [key: %{title: "Tale of Two Cities", format: "hardcover"}]],
-      [delete_request: [key: %{title: "Tale of Two Cities", format: "softcover"}]]
-    ]
-
-    assert {:ok, _} = Dynamo.batch_write_item(%{"books" => delete_requests}) |> ExAws.request()
+        assert {:ok, _} = Dynamo.batch_write_item(%{"books" => delete_requests}) |> ExAws.request()
+      end
+    {:error, error} -> IO.puts "Unable to access local instance of DynamoDB, skipping test module #{__MODULE__}. Reason: #{inspect error}"
   end
 end
