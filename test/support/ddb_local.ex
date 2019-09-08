@@ -11,9 +11,9 @@ defmodule DDBLocal do
   end
 
   def stop_ddb() do
-    IO.puts "Stopping test DynamoDB on port #{get_ddb_port()}..."
-    # Adapted from https://apple.stackexchange.com/questions/277171/how-to-programmatically-find-kill-and-restart-a-local-dynamodb-process
-    :os.cmd(:"kill `ps -ax | grep Dynamo | grep -v grep | awk '{print $1}'`")
+    port = get_ddb_port()
+    IO.puts "Stopping test DynamoDB on port #{port}..."
+    :os.cmd(:"kill `lsof -i :#{port} | grep -v COMMAND | awk '{print $2}'`")
   end
 
   # The fetch_and_start_ddb.exs script and integration test module will check for a local running instance of DynamoDB.
