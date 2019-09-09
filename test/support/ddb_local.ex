@@ -24,5 +24,5 @@ defmodule DDBLocal do
     end
   end
 
-  defp get_ddb_port(), do: Application.get_env(:ex_aws, :dynamodb, [])[:port]
+  def get_ddb_port(), do: Application.get_env(:ex_aws, :dynamodb, [])[:port]
 end

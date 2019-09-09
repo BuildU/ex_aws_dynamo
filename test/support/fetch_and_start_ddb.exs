@@ -1,5 +1,5 @@
 # Originally authored by Nick Marino, @nickelization
-# Download a copy of DDB local and start it, for use by ExAws.DynamoIntegrationTest
+# Download a copy of DDB local (if necessary) and start it, for use by ExAws.DynamoIntegrationTest
 support_dir = "test/support"
 ddb_url = "https://s3-us-west-2.amazonaws.com/dynamodb-local/dynamodb_local_latest.tar.gz"
 ddb_dir = Path.join(support_dir, "dynamodb_local_latest")
